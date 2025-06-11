@@ -19,7 +19,7 @@ import struct
 from threading import Thread
 import copy
 import time
-from .DataDescriptions import *
+from mocap.DataDescriptions import *
 import mocap.MoCapData as MoCapData
 
 

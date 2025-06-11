@@ -33,7 +33,7 @@ import argparse
 import sys
 
 # import NatNet client
-from .NatNetClient import NatNetClient
+from mocap.NatNetClient import NatNetClient
 
 
 # For pybullet :
@@ -82,18 +82,23 @@ class Quaternion:
 
     def to_angle_axis(self):
         # Normalize the quaternion if it's not already normalized
-        if not np.isclose(self.magnitude(), 1):
-            normalized_quat = self.normalize()
-            w = normalized_quat.w
-            x = normalized_quat.x
-            y = normalized_quat.y
-            z = normalized_quat.z
-        else:
-            w = self.w
-            x = self.x
-            y = self.y
-            z = self.z
-
+        # if not np.isclose(self.magnitude(), 1):
+        #     normalized_quat = self.normalize()
+        #     w = normalized_quat.w
+        #     x = normalized_quat.x
+        #     y = normalized_quat.y
+        #     z = normalized_quat.z
+        # else:
+        #     w = self.w
+        #     x = self.x
+        #     y = self.y
+        #     z = self.z
+        normalized_quat = self.normalize()
+        w = normalized_quat.w
+        x = normalized_quat.x
+        y = normalized_quat.y
+        z = normalized_quat.z
+        # print(f'W of quat : {w:.4f} {x:.4f} {y:.4f} {z:.4f}')
         angle = 2 * np.arccos(w)
         axis = [x, y, z] / np.sin(angle / 2)
         return angle, axis
@@ -160,6 +165,33 @@ class Quaternion:
         qv = Quaternion(v[0], v[1], v[2], 0)
         qv_rot = self * qv * self.conjugate()
         return [qv_rot.x, qv_rot.y, qv_rot.z]
+    
+    def rotate_vector_inverse(self, v):
+        """
+        Rotate a 3-vector *v* from the **world** frame into this quaternion’s
+        **body** frame (i.e. apply the inverse rotation).
+
+        Parameters
+        ----------
+        v : array-like, shape (3,)
+            The vector in world coordinates.
+
+        Returns
+        -------
+        np.ndarray, shape (3,)
+            The vector expressed in the body frame.
+        """
+        # Ensure v is a 3-element numpy array
+        v = np.asarray(v, dtype=float).reshape(3)
+
+        # Promote the vector to a pure quaternion  (0, v)
+        v_quat = self.__class__(0.0, *v)
+
+        # Apply the inverse rotation:  q⁻¹ · (0,v) · q
+        rotated = self.conjugate() * v_quat * self
+
+        # Return the vector part
+        return np.array([rotated.x, rotated.y, rotated.z])
 
 
 # ------------------------------------------------------------------------------
@@ -272,6 +304,8 @@ class VolierePosition:
                 continue
 
             i = str(rigid_body.id_num)
+            # print(f'i : {i}')
+            # print(f'self id_distkeys : {self.id_dict.keys()}')
             if i not in self.id_dict.keys():
                 continue
             pos = rigid_body.pos
@@ -463,6 +497,39 @@ class VolierePosition:
             return [0.0, 0.0, 0.0]
 
         return list(ang_vel_body)  # list(ang_vel)
+
+    def compute_angular_velocity_GPT(self, ac_id):
+        track = self.quaternion_track[ac_id]
+        if len(track) < self.vel_samples:
+            return [0.0, 0.0, 0.0]
+
+        q_prev, t_prev = track[0]
+        num, den = np.zeros(3), 0.0
+
+        for q_curr, t_curr in list(track)[1:]:
+            dt = max(t_curr - t_prev, 1e-8)
+            dq = q_curr * q_prev.conjugate()
+            angle, axis = dq.to_angle_axis()
+            if angle > np.pi:
+                angle -= 2*np.pi
+                axis  = -axis
+            num += axis * angle
+            den += dt
+            q_prev, t_prev = q_curr, t_curr
+
+        if den == 0.0:
+            return [0.0, 0.0, 0.0]
+
+        ang_vel_world = num / den
+
+        # body frame
+        q_last, _ = track[-1]
+        ang_vel_body = q_last.rotate_vector_inverse(ang_vel_world)
+
+        if np.any(np.isnan(ang_vel_body)):
+            return [0.0, 0.0, 0.0]
+
+        return ang_vel_body.tolist()
 
     # def receiveRigidBodyList(self, rigidBodyList, stamp):
     #     for (ac_id, pos, quat, valid) in rigidBodyList:
@@ -674,7 +741,7 @@ def main():
     angular_velocities = []
 
     id_dict = dict(
-        [("888", "888"), ("66", "66"), ("333", "333")]
+        [("888", "888"), ("66", "66"), ("333", "333"),("603", "603")]
     )  # rigidbody_ID, aircraft_ID
     # freq = 10
     # vel_samples = 20
@@ -717,6 +784,7 @@ def main():
 
         while True:
             print(voliere.vehicles["333"].position)
+            print(f'Ball : {voliere.vehicles["603"].position}')
             # Record data
             # positions.append(vehicles[0].position)
             # velocities.append(vehicles[0].velocity)
