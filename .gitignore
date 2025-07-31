@@ -1,0 +1,5 @@
+*.pyc
+mocap.egg-info/dependency_links.txt
+mocap.egg-info/PKG-INFO
+mocap.egg-info/SOURCES.txt
+mocap.egg-info/top_level.txt
